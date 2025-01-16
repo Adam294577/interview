@@ -2,9 +2,19 @@
   <q-page class="row q-pt-xl">
     <div class="full-width q-px-xl">
       <div class="q-mb-xl">
-        <q-input v-model="tempData.name" label="姓名" />
-        <q-input v-model="tempData.age" label="年齡" />
-        <q-btn color="primary" class="q-mt-md">新增</q-btn>
+        <q-input
+          ref="NameRef"
+          :rules="rules.name"
+          v-model.trim="CreateTempData.name"
+          label="姓名"
+        />
+        <q-input
+          ref="AgeRef"
+          :rules="rules.age"
+          v-model.number="CreateTempData.age"
+          label="年齡"
+        />
+        <q-btn color="primary" class="q-mt-md" @click="handleAdd">新增</q-btn>
       </div>
 
       <q-table
@@ -74,24 +84,39 @@
         </template>
       </q-table>
     </div>
+    <UserDialog
+      v-if="EditShow"
+      v-model:show="EditShow"
+      v-model:EditNameRef="EditNameRef"
+      v-model:EditAgeRef="EditAgeRef"
+      v-model="EditTempData"
+      :rules="rules"
+      @update="handleEdit"
+    />
   </q-page>
 </template>
 
 <script setup lang="ts">
-import axios from 'axios';
 import { QTableProps } from 'quasar';
-import { ref } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
+import { FetchUserList } from 'boot/api/Userlist';
+import { useQuasar } from 'quasar';
+import UserDialog from 'components/UserDialog.vue';
 interface btnType {
   label: string;
   icon: string;
   status: string;
 }
-const blockData = ref([
-  {
-    name: 'test',
-    age: 25,
-  },
-]);
+interface Userlist {
+  id: string; // 主鍵
+  name: string; // 姓名
+  age: number; // 年齡
+}
+const $q = useQuasar();
+// console.log('$q', $q);
+
+const blockData = ref<Userlist[]>([]);
+
 const tableConfig = ref([
   {
     label: '姓名',
@@ -106,7 +131,8 @@ const tableConfig = ref([
     align: 'left',
   },
 ]);
-const tableButtons = ref([
+
+const tableButtons = ref<btnType[]>([
   {
     label: '編輯',
     icon: 'edit',
@@ -119,13 +145,121 @@ const tableButtons = ref([
   },
 ]);
 
-const tempData = ref({
+const CreateTempData = ref({
   name: '',
   age: '',
 });
-function handleClickOption(btn, data) {
-  // ...
+const EditTempData = ref({
+  name: '',
+  age: '',
+});
+const EditShow = ref(false);
+
+async function fetchData() {
+  try {
+    const { data } = await FetchUserList.getList();
+    await nextTick();
+    blockData.value = data;
+  } catch (error) {
+    console.error('獲取資料失敗:', error);
+  }
 }
+const NameRef = ref<HTMLInputElement | null>(null);
+const AgeRef = ref<HTMLInputElement | null>(null);
+const EditNameRef = ref<HTMLInputElement | null>(null);
+const EditAgeRef = ref<HTMLInputElement | null>(null);
+const rules = {
+  name: [(val: string) => !!val || '請輸入姓名'],
+  age: [
+    (val: number) => !!val || '請輸入年齡',
+    (val: number) => val > 0 || '請輸入正整數',
+  ],
+};
+const checkInput = () => {
+  if (EditShow.value) {
+    if (!EditNameRef.value.validate()) return false;
+    if (!EditAgeRef.value.validate()) return false;
+  } else {
+    if (!NameRef.value.validate()) return false;
+    if (!AgeRef.value.validate()) return false;
+  }
+  return true;
+};
+
+const ResetInput = async (TempRef) => {
+  TempRef.value = { name: '', age: '' };
+  await nextTick();
+  if (!EditShow.value) {
+    NameRef.value.resetValidation();
+    AgeRef.value.resetValidation();
+  }
+};
+async function handleAdd() {
+  if (!checkInput()) return;
+  try {
+    await FetchUserList.create(CreateTempData.value);
+    $q.notify({
+      position: 'top',
+      type: 'positive',
+      message: '新增成功',
+    });
+    ResetInput(CreateTempData);
+    fetchData();
+  } catch (error) {
+    console.error('新增失敗:', error);
+  }
+}
+async function handleEdit() {
+  if (!checkInput()) return;
+  try {
+    await FetchUserList.update(EditTempData.value);
+    $q.notify({
+      position: 'top',
+      type: 'positive',
+      message: '更新成功',
+    });
+    ResetInput(EditTempData);
+    EditShow.value = false;
+    fetchData();
+  } catch (error) {
+    console.error('更新失敗:', error);
+  }
+}
+
+async function handleClickOption(btn: btnType, row: Userlist) {
+  if (btn.status === 'edit') {
+    EditShow.value = true;
+    EditTempData.value = { ...row };
+  } else if (btn.status === 'delete') {
+    try {
+      $q.dialog({
+        title: '確認刪除',
+        message: '確定要刪除此筆資料嗎？',
+        cancel: true,
+        persistent: true,
+      }).onOk(async () => {
+        await FetchUserList.delete(row.id);
+        $q.notify({
+          position: 'top',
+          type: 'positive',
+          message: '刪除成功',
+        });
+        fetchData();
+      });
+    } catch (error) {
+      $q.notify({
+        position: 'top',
+        type: 'negative',
+        message: '刪除失敗',
+      });
+      console.error('刪除失敗:', error);
+    }
+  }
+}
+
+onMounted(() => {
+  fetchData();
+});
 </script>
 
 <style lang="scss" scoped>
